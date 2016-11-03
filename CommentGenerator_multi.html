@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>HTML5 コメントジェネレーター</title>
+<!-- ver 0.0.7 -->
+<script src="https://code.createjs.com/createjs-2015.11.26.min.js"></script>
+<script src="CommentGenerator.js"></script>
+
+<script>
+//outlineが壊れるのを少しマシにする
+//参考：https://github.com/HAKASHUN/manabi/issues/86
+createjs.Text.prototype.draw = function(ctx, ignoreCache) {
+	if (this.DisplayObject_draw(ctx, ignoreCache)) {
+		return true;
+	}
+
+	var col = this.color || "#000";
+	if (this.outline) {
+		ctx.strokeStyle = col;
+		ctx.lineWidth = this.outline * 1;
+
+		ctx.miterLimit = 2;
+		ctx.lineJoin = 'circle';
+	} else {
+		ctx.fillStyle = col;
+	}
+
+	this._drawText(this._prepContext(ctx));
+	return true;
+};
+
+function init() {
+	var HcgFormat = {};
+	var TxtFormat = new Object();
+	/************************************************/
+	createjs.Ticker.setFPS(30);
+	HcgFormat.CommentMax = 3;	//コメントの最大表示数 ここを4以上にしたらcanvasのheight値も変えること
+	HcgFormat.SkinHeight = 32;	//使用するスキンの高さ
+	var DemoMode  		 = 0;	//デモモード
+	/************************************************/
+	var stage = new createjs.Stage("canvas");
+	var obj = [];
+	var startTime = Math.floor(new Date().getTime()/1000);
+	var startNo   = -1;
+	var CommentNow = 0;
+	var SettingLoaded = false;
+	var FullPath = location.href;
+	var PathArray = FullPath.split('/');
+	var PathHead = "";
+	if(PathArray[2] == "absolute") {
+		PathHead = "http://absolute/";
+	} else {
+		PathHead = "";
+	}
+	HcgFormat.PathHead = PathHead;
+	var CurrentPath = "";
+	for(var i=0; i<PathArray.length-1; i++){
+		CurrentPath += PathArray[i] + "/";
+	}
+	HcgFormat.CurrentPath = CurrentPath;
+	
+	createjs.Ticker.addEventListener('tick', mainLoop);
+	function mainLoop() {
+		stage.update();
+	}
+	
+	SettingFunc();
+	var SettingTimer = setInterval(SettingFunc, 5000);
+	if(DemoMode) {
+		console.log("デモモード");
+		var DemoTimer = setInterval(DemoFunc, 5000);
+	} else {
+		console.log("HTML5コメントジェネレーター");
+		var CommentTimer = setInterval(CommentFunc, 1000);
+	}
+	
+	//コメント(XML)を読んでコメントジェネレーターに渡す
+	function CommentFunc() {
+		if(SettingLoaded) {
+			//XML読み込み
+			function handleComplete(event){
+				var loader = event.target;
+				loader.removeEventListener("complete", handleComplete);
+				var xml = loader.getResult("IDCommentFile").getElementsByTagName('comment');
+				for(var i=0; i<xml.length; i++) {
+					if((startTime < xml[i].getAttributeNode("time").value) ||
+						 ((startTime == xml[i].getAttributeNode("time").value) && (startNo < xml[i].getAttributeNode("no").value))) {
+						startTime = xml[i].getAttributeNode("time").value;
+						startNo   = xml[i].getAttributeNode("no").value;
+						if(isComment(xml[i].firstChild.nodeValue),TxtFormat['ManageCommentVisible'],TxtFormat['BSPCommentVisible']) {
+							var handle="";
+							if(xml[i].getAttributeNode("handle") != null) {
+								handle = xml[i].getAttributeNode("handle").value;
+							} else {
+								if(xml[i].getAttributeNode("no") != null) {
+									if(TxtFormat['NoHandleType']==0) {
+										handle = xml[i].getAttributeNode("no").value+"コメ";
+									} else if(TxtFormat['NoHandleType']==1) {
+										handle = TxtFormat['NoHandleName'];
+									}
+								}
+							}
+							//ここから
+							if(xml[i].getAttributeNode("service").value == "nicolive") {
+								handle = "【ニコ生】" + handle;
+							} else if(xml[i].getAttributeNode("service").value == "youtubelive") {
+								handle = "【YouTube】" + handle;
+							} else if(xml[i].getAttributeNode("service").value == "twitch") {
+								handle = "【twitch】" + handle;
+							} else if(xml[i].getAttributeNode("service").value == "AbemaFresh") {
+								handle = "【AbemaFresh】" + handle;
+							}
+							//ここまでを追記しただけ
+							console.log(xml[i].firstChild.nodeValue);
+							var CGen = new CommentGenerator(handle, fixComment(xml[i].firstChild.nodeValue), HcgFormat, TxtFormat);
+							obj[CommentNow] = CGen;
+							obj[CommentNow].y = HcgFormat['SkinHeight']*(HcgFormat['CommentMax']-1);
+							stage.addChild(obj[CommentNow].getSkinImage());
+							stage.addChild(obj[CommentNow].getBGColorBar());
+							stage.addChild(obj[CommentNow].getEdgeCommentText());
+							stage.addChild(obj[CommentNow].getCommentText());
+							for(var i=CommentNow; i>(CommentNow-(HcgFormat['CommentMax']-1)); i--) {
+								if((i-1)>=0) {
+									obj[(i-1)].getSkinImage().y -= HcgFormat['SkinHeight'];
+									obj[(i-1)].getBGColorBar().y -= HcgFormat['SkinHeight'];
+									obj[(i-1)].getEdgeCommentText().y -= HcgFormat['SkinHeight'];
+									obj[(i-1)].getCommentText().y -= HcgFormat['SkinHeight'];
+								}
+							}
+							
+							if((CommentNow-HcgFormat['CommentMax'])>=0) {
+								stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getSkinImage());
+								stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getBGColorBar());
+								stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getEdgeCommentText());
+								stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getCommentText());
+								delete obj[(CommentNow-HcgFormat['CommentMax'])];
+							}
+							CommentNow++;
+						}
+						break;
+					}
+				}
+			}
+			var queue = new createjs.LoadQueue(true);
+			var manifest = [
+			 {"src":HcgFormat['CurrentPath']+"comment.xml","id":"IDCommentFile"}
+			 ];
+			queue.loadManifest(manifest,true);
+			queue.load();
+			queue.addEventListener('complete',handleComplete);
+		}
+	}
+	
+	function SettingFunc() {
+		//XML読み込み
+		function handleComplete(event){
+			var loader = event.target;
+			loader.removeEventListener("complete", handleComplete);
+			var xml = loader.getResult("IDSettingFile");
+			var skinfile = "";
+			var skinfolder = "";
+			if(xml.getElementsByTagName('SkinFile')[0].firstChild != null) {
+				skinfile = xml.getElementsByTagName('SkinFile')[0].firstChild.nodeValue;
+			}
+			if(xml.getElementsByTagName('SkinFolder')[0].firstChild != null) {
+				skinfolder = xml.getElementsByTagName('SkinFolder')[0].firstChild.nodeValue;
+			}
+			var txtFormat = {
+				'HandleVisible' : xml.getElementsByTagName('HandleVisible')[0].firstChild.nodeValue,
+				'HandleOrder' : xml.getElementsByTagName('HandleOrder')[0].firstChild.nodeValue,
+				'Honorific' : xml.getElementsByTagName('Honorific')[0].firstChild.nodeValue,
+				'NoHandleType' : xml.getElementsByTagName('NoHandleType')[0].firstChild.nodeValue,
+				'NoHandleName' : xml.getElementsByTagName('NoHandleName')[0].firstChild.nodeValue,
+				'TxtColor' : xml.getElementsByTagName('TxtColor')[0].firstChild.nodeValue,
+				'TxtFont' : xml.getElementsByTagName('TxtFont')[0].firstChild.nodeValue,
+				'TxtSize' : xml.getElementsByTagName('TxtSize')[0].firstChild.nodeValue,
+				'BgColor' : xml.getElementsByTagName('BgColor')[0].firstChild.nodeValue,
+				'BgColorType' : xml.getElementsByTagName('BgColorType')[0].firstChild.nodeValue,
+				'TxtEdgeColor' : xml.getElementsByTagName('TxtEdgeColor')[0].firstChild.nodeValue,
+				'TxtEdgeType' : xml.getElementsByTagName('TxtEdgeType')[0].firstChild.nodeValue,
+				'TxtEdgeValue' : xml.getElementsByTagName('TxtEdgeValue')[0].firstChild.nodeValue,
+				'SkinType' : xml.getElementsByTagName('SkinType')[0].firstChild.nodeValue,
+				'SkinFile' : skinfile,
+				'SkinFolder' : skinfolder,
+				'TimeType' : xml.getElementsByTagName('TimeType')[0].firstChild.nodeValue,
+				'TimeValue' : xml.getElementsByTagName('TimeValue')[0].firstChild.nodeValue,
+				'TxtUpSpace' : xml.getElementsByTagName('TxtUpSpace')[0].firstChild.nodeValue,
+				'TxtLeftSpace' : xml.getElementsByTagName('TxtLeftSpace')[0].firstChild.nodeValue,
+				'TxtLength' : xml.getElementsByTagName('TxtLength')[0].firstChild.nodeValue,
+				'TxtLengthValue' : xml.getElementsByTagName('TxtLengthValue')[0].firstChild.nodeValue,
+				'ManageCommentVisible' : xml.getElementsByTagName('ManageCommentVisible')[0].firstChild.nodeValue,
+				'BSPCommentVisible' : xml.getElementsByTagName('BSPCommentVisible')[0].firstChild.nodeValue,
+				'Direction' : xml.getElementsByTagName('Direction')[0].firstChild.nodeValue,
+				'userBGColor' : xml.getElementsByTagName('userBGColor')[0].firstChild.nodeValue,
+				'userSkinName' : xml.getElementsByTagName('userSkinName')[0].firstChild.nodeValue
+			};
+			setTxtFormat(txtFormat);
+		}
+		var queue = new createjs.LoadQueue(true);
+		var manifest = [
+		 {"src":HcgFormat['CurrentPath']+"setting.xml","id":"IDSettingFile"}
+		 ];
+		queue.loadManifest(manifest,true);
+		queue.load();
+		queue.addEventListener('complete',handleComplete);
+	}
+	
+	//デモ
+	function DemoFunc(){
+		if(SettingLoaded) {
+			var CGen = new CommentGenerator("コテハン", "コメント", HcgFormat, TxtFormat);
+			obj[CommentNow] = CGen;
+			stage.addChild(obj[CommentNow].getSkinImage());
+			stage.addChild(obj[CommentNow].getBGColorBar());
+			stage.addChild(obj[CommentNow].getEdgeCommentText());
+			stage.addChild(obj[CommentNow].getCommentText());
+			for(var i=CommentNow; i>(CommentNow-(HcgFormat['CommentMax']-1)); i--) {
+				if((i-1)>=0) {
+					obj[(i-1)].getSkinImage().y -= HcgFormat['SkinHeight'];
+					obj[(i-1)].getBGColorBar().y -= HcgFormat['SkinHeight'];
+					obj[(i-1)].getEdgeCommentText().y -= HcgFormat['SkinHeight'];
+					obj[(i-1)].getCommentText().y -= HcgFormat['SkinHeight'];
+				}
+			}
+		
+			if((CommentNow-HcgFormat['CommentMax'])>=0) {
+				stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getSkinImage());
+				stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getBGColorBar());
+				stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getEdgeCommentText());
+				stage.removeChild(obj[(CommentNow-HcgFormat['CommentMax'])].getCommentText());
+				delete obj[(CommentNow-HcgFormat['CommentMax'])];
+			}
+			CommentNow++;
+		}
+	}
+	
+	function setTxtFormat(txtFormat) {
+		console.log("設定を読み込みました");
+		TxtFormat = txtFormat;
+		SettingLoaded = true;
+	}
+	
+	//コメントとして処理するかどうかの判断
+	function isComment(comment, Manage, BSP) {
+		if(comment.substring(0,11)=="/press show") {
+			//BSP
+			if(BSP=="1") {
+				return true;
+			} else {
+				return false;
+			}
+		} else if(comment.substring(0,1)=="/") {
+			//運営コメント
+			if(Manage=="1") {
+				return true;
+			} else {
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	//コメント処理
+	function fixComment(comment) {
+		if(comment.substring(0,11)=="/press show") {
+			//BSPコメント
+			var bsp_array = comment.split(" ");
+			var bsp = "";
+			for(var i=3; i<bsp_array.length; i++) {
+				bsp += bsp_array[i]+ " ";
+			}
+			comment = bsp;
+		} else if(comment.substring(0,5)=="/perm") {
+			//運営コメント(perm)
+			var perm_array = comment.split(" ");
+			var perm = "";
+			for(var i=1; i<perm_array.length; i++) {
+				perm += perm_array[i]+ " ";
+			}
+			comment = perm;
+		} else if(comment.substring(0,1)=="/") {
+			//運営コメント
+			comment = comment.substr(1);
+		}
+		//<>を元に戻す
+		comment = comment.replace(/&amp;/g,"&");
+		comment = comment.replace(/&lt;/g,"<");
+		comment = comment.replace(/&gt;/g,">");
+		
+		//htmlタグ除去
+		var pattern = /<("[^"]*"|'[^']*'|[^'">])*>/g;
+		comment = comment.replace(pattern,'');
+		
+		return comment.trim();
+	}
+}
+</script>
+</head>
+
+<body onload="init();">
+	<canvas id="canvas" width="512" height="300"></canvas>
+</body>
+</html>
